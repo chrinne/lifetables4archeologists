@@ -1,0 +1,265 @@
+---
+title: "Neolithic life tables de"
+subtitle: "Providing and presenting data on human age at death."
+author: 
+  - Christoph Rinne^[Kiel University, crinne@ufg.uni-kiel.de]
+date: "Version 2.1 (`r format(Sys.time(), '%Y-%m-%d')`)"
+version: "Version 2.1 rev."
+output: 
+  pdf_document:
+    toc: true
+    number_sections: true
+papersize: a4
+urlcolor: blue
+link-citations: yes
+linkcolor: blue
+license: "CC-BY 4.0"
+description: "The dataset contains mortality data of humans taken from the literature. The collection provides a general impression of the differences in mortality during the Neolithic in different communities in relation to archaeological periods and regions within Germany."
+---
+
+# Introduction
+
+The dataset contains mortality data of humans taken from the literature. Therefore, the data is heterogeneous in many respects, especially with regard to the quality of the anthropological information. However, the data is simplified and classified to fit into a limited number of columns, e.g. a general archaeological classification.
+
+I collected the data to get a general impression of the differences in mortality during the Neolithic in different communities in relation to archaeological periods and regions within Germany. I did not intend to build up a comprehensive database of all mortality data, nor to create a well-founded collection of information from physical anthropology. Due to the easy availability of the data, I also integrated data from an Early Neolithic cemetery in Austria.
+
+Important note: Most anthropologists will reject extrapolations, especially of life expectancy, based on this data. The attribute "(archaeological) culture" serves as a label for a number of features related to the way of life, e.g. houses, settlement structure, economy and burial practices. The attribute "period" is based on the previous entity. Both must be placed in an archaeological framework and a current absolute dating, depending on the research question. Please bear in mind that collective burials can be used over a long period of time.  
+
+The data is provided as a sqlite database in a very simple form, not normalised or as implemented relations. This documentation is provided as an R-markdown with a resulting pdf to give a first overview of the data in the database. At the same time, a simple workflow for data processing in R with the R package [mortAAR] (https://cran.r-project.org/web/packages/mortAAR/index.html) for calculating life tables is described.  The literature used and cited is provided as a Bibtex file.
+
+The data collection is available via the LandMan portal of CRC 1266^[ "Scales of Transformation - Human-Environmental Interaction in Prehistoric and Archaic Societies." Deutsche Forschungsgemeinschaft (DFG) - project number 290391021
+[https://gepris.dfg.de/gepris/projekt/290391021](https://gepris.dfg.de/gepris/projekt/290391021)]. Subproject: "Regional and Local Patterns of 3<sup>rd</sup> Millennium Transformations of Social and Economic Practices in the Central German Mountain Range (D2)"  [https://gepris.dfg.de/gepris/projekt/316739879](https://gepris.dfg.de/gepris/projekt/316739879)]. In addition, I have decided to set up this Github repository to make updates traceable and further additions to the database more easily accessible [https://github.com/chrinne/lifetables4archeologists](https://github.com/chrinne/lifetables4archeologists). 
+
+# Data presentation
+
+All code chunks will be visible, this is part of the reproducibility. The documentation uses some R packages:
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, include = TRUE)
+require(pacman) || install.packages("pacman")
+pacman::p_load(dplyr, ggplot2, knitr, mortAAR, RSQLite)
+```
+
+Please set the working directory to the folder with the data, e.g.:
+
+```{r working directory, eval=FALSE}
+setwd('d:/data/folder/')
+```
+
+Set up the database connection.
+
+```{r database connection}
+db01 <- dbConnect(RSQLite::SQLite(), dbname = "./de_lifetable_neol.sqlite")
+```
+
+## Data structure
+
+The data is provided in three tables – two tables for individual and tabled mortality data and one with cooridinates for the nearby places. 
+
+```{sql Tables in the sqlite database, connection = db01}
+select name  as 'Name' from sqlite_master where type = 'table' order by 1; 
+```
+
+Import the data into the R environment.
+
+```{r data import}
+tables<- dbGetQuery(db01, "select name from sqlite_master 
+                    where type = 'table' order by 1;")[,1]
+for (tbl in tables){
+  assign(tbl, dbReadTable(db01, tbl))
+}
+```
+
+Most sqlite columns are set to TXT due to type affinity in sqlite, one exception is 'count'. You might need to adjust this (sb).
+
+### lifetable_ind and lifetable_tbl 
+
+The structure of the mortality data tables for individual and tabled data is identical for the easy combination (*rbind()*). The column names are self-explanatory in general. 
+
+```{r Column names (attributes) in the lifedata tables , results = 'asis'}
+paste(colnames(get(tables[2])), collapse = ", ")
+```
+
+The column 'count' is always 1 for individual data and can provide a float for tabled data due to interpolation in the original life tables. The column 'sex' provides a simplified English version of the original sex determination in the column 'sex.orig'. The columns 'from' and 'to' are derived from the original age classification in 'ageclass.orig' to fulfil the needs of mortAAR.
+
+### places
+
+The table 'places' provides coordinates (WGS84) of nearby places to allow spatial differentiation. The 'id' is related to 'places' in the lifetables.
+
+```{r Column names (attributes) in the places table, results = 'asis'}
+paste(colnames(get(tables[5])), collapse = ", ")
+```
+
+## Content of places
+
+The nearby places are distributed from Hildesheim south of Hannover to the Alps and from the Rhine to Straubing in Southeast Bavaria. The site of Kleinhadersdorf is an outlier in Eastern Austria. You can notice a significant agglomeration of places and thus of nearby sites around the Harz region.
+
+```{r plot places, fig.cap = "Plot of nearby places."}
+plot(places$longitude, places$latitude, cex = 0.2, 
+     xlab = "Longitude", ylab = "Latitude")
+text(places$longitude, places$latitude, places$name, cex = 0.6)
+```
+
+```{r List of places, results = 'asis'}
+paste(places[,2], collapse = ", ")
+```
+
+In some cases, the tabular data is derived from regional summaries, e.g. for the Late Neolithic Corded Ware in the Tauber Valley or the Middle Neolithic Baalberge burials from a region, localised with the eponymous site.  
+
+## Content of life tables
+
+The general overview is comprised of two tables for individual and tabled data. 
+
+```{r Combine lifedata tables}
+ld <- rbind(lifedata_ind, lifedata_tbl)
+ld$from <- as.numeric(ld$from)
+ld$to <- as.numeric(ld$to) 
+```
+There are cases where I first entered the tabulated data and then the individual data. Both datasets have advantages and disadvantages, which is why both are offered. These duplicate sites are not excluded from the subsequent data presentation. Duplicate site names are:
+
+```{r}
+ind.sites <- unique(lifedata_ind$site)
+tab.sites <- unique(lifedata_tbl$site)
+sort(as.character(factor(tab.sites, levels = ind.sites)))
+```
+
+**Neolithic periods** are abbreviated: **E**arly, **M**iddle, **Y**ounger, **L**ate and **F**inal. 
+
+```{r Periods to factor and table}
+ld$period <- factor(ld$period, levels = c("EN","MN", "YN", "LN","FN"))
+ld %>%
+  group_by(., period) %>%
+  summarise(count = sum(count)) %>%
+  knitr::kable(caption = "Number of individuals in each period.", 
+               col.names = c("Period", "Count"))
+```
+
+**Archaeological cultures** per period.
+
+```{r Data per archaeological cultures per period}
+ld %>%
+  group_by(., period, culture) %>%
+  summarise(count = sum(count)) %>%
+  knitr::kable(caption = "Number of individuals in each archaeological culture.",
+               col.names = c("Period", "Culture", "Count"))
+```
+
+Number of individuals per simplified sex determination. The high proportion of undetermined sex results from the tabular data and the subadult individuals.
+
+```{r Sex determination}
+ld %>%
+  group_by(., sex) %>%
+  summarise(count = sum(count)) %>%
+  knitr::kable(caption = "Number of individuals per sex.",
+               col.names = c("Sex", "Count"))
+```
+
+Sites, related citations and count of individuals.
+```{r Sites and related citations}
+ld %>%
+  group_by(., site, literature) %>%
+  summarise(count = sum(count)) %>%
+  knitr::kable(caption = "Number of individuals per site",
+               col.names = c("Site", "Literature", "Count"))
+```
+
+The age ranges depend mainly on the traditional age groups and the usual 5-year-intervals in life tables. Two different illustrations can show the dependence between the determined age at death and the accuracy of the age range.
+
+```{r Age range visualization, fig.cap = "Age range per individual."}
+ld %>%
+  select(., from, to) %>%
+  filter(., !is.na(from)) %>%
+  filter(., !is.na(to)) %>%
+  mutate(., range = to - from) %>%
+  mutate(., agegroup = ifelse(to < 20, 'subadult', 'adult')) %>%
+  arrange(., from, to) -> ages
+id <- seq(nrow(ages))
+plot(c(0,100), c(0,nrow(ages)), xlab = "Age from to", ylab = "Individual", type = "n") +
+segments(ages$from[id], id, ages$to[id], id)
+```
+```{r Age range boxplot, fig.cap = "Age range for subadult (< 20) and adult individuals."}
+boxplot(range~agegroup, data = ages, xlab = "Age group", ylab = "Age range")
+```
+
+\newpage
+## Overview of age at death (dx).
+
+The following plots are created with the R-package mortAAR^[If you observe strange plot lines in the ggplots of mortAAR, please consider the installation of the latest version of mortAAR from github.] without an interpolation (method = standard) for various groupings. 
+
+### Periods
+
+```{r d(x) periods}
+prep.life.table(ld, dec = "count", agebeg = "from", ageend = "to",
+  group = "period", method = "standard", agerange = "included") %>%
+  life.table(.) %>%
+  plot(., display = c("dx"), line_vis="color")
+```
+
+### Sex
+
+```{r d(x) sex}
+prep.life.table(ld, dec = "count", agebeg = "from", ageend = "to",
+  group = "sex", method = "standard", agerange = "included") %>%
+  life.table(.) %>%
+  plot(., display = c("dx"), line_vis="color")
+```
+
+### Sites per period
+
+The following diagrams show very heterogeneous data. It is obvious that each data set has its own weaknesses and requires careful and detailed analysis. Furthermore, this does not rule out significant differences in their relation to previous living conditions.
+
+The sites from the **Early Neolithic**.
+
+```{r d(x) sites EN}
+ld %>%
+  filter(.,period == "EN") %>%
+  prep.life.table(., dec = "count", agebeg = "from", ageend = "to",
+  group = "site", method = "standard", agerange = "included") %>%
+  life.table(.) %>%
+  plot(., display = c("dx"), line_vis="color")
+```
+
+The sites from the **Middle Neolithic**.
+
+```{r d(x) sites MN}
+ld %>%
+  filter(.,period == "MN") %>%
+  prep.life.table(., dec = "count", agebeg = "from", ageend = "to",
+  group = "site", method = "standard", agerange = "included") %>%
+  life.table(.) %>%
+  plot(., display = c("dx"), line_vis="color")
+```
+
+The sites from the **Younger Neolithic**.
+
+```{r d(x) sites YN}
+ld %>%
+  filter(.,period == "YN") %>%
+  prep.life.table(., dec = "count", agebeg = "from", ageend = "to",
+  group = "site", method = "standard", agerange = "included") %>%
+  life.table(.) %>%
+  plot(., display = c("dx"), line_vis="color")
+```
+
+The sites from the **Late Neolithic**.
+
+```{r d(x) sites LN}
+ld %>%
+  filter(.,period == "LN") %>%
+  prep.life.table(., dec = "count", agebeg = "from", ageend = "to",
+  group = "site", method = "standard", agerange = "included") %>%
+  life.table(.) %>%
+  plot(., display = c("dx"), line_vis="color")
+```
+
+The sites from the **Final Neolithic**.
+
+```{r d(x) sites FN}
+ld %>%
+  filter(.,period == "FN") %>%
+  prep.life.table(., dec = "count", agebeg = "from", ageend = "to",
+  group = "site", method = "standard", agerange = "included") %>%
+  life.table(.) %>%
+  plot(., display = c("dx"), line_vis="color")
+```
+
