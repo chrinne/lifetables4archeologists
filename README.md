@@ -8,3 +8,5 @@ The data is provided as a sqlite database in a very simple form, not normalised 
 
 The data collection is available via the LandMan portal of CRC 1266^[ "Scales of Transformation - Human-Environmental Interaction in Prehistoric and Archaic Societies." Deutsche Forschungsgemeinschaft (DFG) - project number 290391021
 [https://gepris.dfg.de/gepris/projekt/290391021](https://gepris.dfg.de/gepris/projekt/290391021)]. Subproject: "Regional and Local Patterns of 3<sup>rd</sup> Millennium Transformations of Social and Economic Practices in the Central German Mountain Range (D2)"  [https://gepris.dfg.de/gepris/projekt/316739879](https://gepris.dfg.de/gepris/projekt/316739879)]. In addition, I have decided to set up this Github repository to make updates traceable and further additions to the database more easily accessible. 
+
+Please acknowledge my work if you found it useful for your publications.
