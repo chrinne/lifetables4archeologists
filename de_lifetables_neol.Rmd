@@ -54,7 +54,7 @@ db01 <- dbConnect(RSQLite::SQLite(), dbname = "./de_lifetable_neol.sqlite")
 
 ## Data structure
 
-The data is provided in three tables – two tables for individual and tabled mortality data and one with cooridinates for the nearby places. 
+The data is provided in four tables: one table with cited literature, two tables for individual and tabled mortality data and one table with cooridinates for the nearby places. The metadata of the data is saved in an additional table.
 
 ```{sql Tables in the sqlite database, connection = db01}
 select name  as 'Name' from sqlite_master where type = 'table' order by 1; 
@@ -70,7 +70,7 @@ for (tbl in tables){
 }
 ```
 
-Most sqlite columns are set to TXT due to type affinity in sqlite, one exception is 'count'. You might need to adjust this (sb).
+Most sqlite columns are set to TXT due to type affinity in sqlite, one exception is 'count'. You might need to adjust this.
 
 ### lifetable_ind and lifetable_tbl 
 
@@ -110,18 +110,24 @@ In some cases, the tabular data is derived from regional summaries, e.g. for the
 
 The general overview is comprised of two tables for individual and tabled data. 
 
-```{r Combine lifedata tables}
+```{r Combine lifedata tables, warning=FALSE}
 ld <- rbind(lifedata_ind, lifedata_tbl)
 ld$from <- as.numeric(ld$from)
 ld$to <- as.numeric(ld$to) 
 ```
-There are cases where I first entered the tabulated data and then the individual data. Both datasets have advantages and disadvantages, which is why both are offered. These duplicate sites are not excluded from the subsequent data presentation. Duplicate site names are:
+There are cases where I first entered the tabulated data and then the individual data. Both datasets have advantages and disadvantages, which is why both are offered. A further reason for multiple recorded sites is the re-determination or the recording on the basis of different bones, e.g. in collective graves. Unfortunately, the Literature field cannot be counted directly here, as it also refers to individual catalogue numbers. It must therefore be counted on a short citation, which then excludes multiple entries in a single publication, e.g. cranial and pelvic age estimation in Sorsum by Moser et al. 2024. 
 
-```{r}
-ind.sites <- unique(lifedata_ind$site)
-tab.sites <- unique(lifedata_tbl$site)
-sort(as.character(factor(tab.sites, levels = ind.sites)))
+```{r multiple recorded sites: re-determination}
+ld %>%
+  # individual citations truncated to the root element 
+  mutate(., short_citation = sub(",.*", "", literature)) %>%
+  group_by(., site) %>%
+  summarise(., recordings = n_distinct(short_citation)) %>%
+  filter(., recordings > 1) %>%
+  knitr::kable(caption = "Sites with multiple recordings.")
 ```
+
+This reference highlights a further characteristic of this data set: the survey of different bones inevitably leads to different numbers of individuals that do not necessarliy correspond to the minimum number of individuals (MNI) found at the site (cf Sorsum counted individuals). To understand this data set correctly: **It is a summary of opinions on age and gender characteristics, not necessarily the identification of individuals.**
 
 **Neolithic periods** are abbreviated: **E**arly, **M**iddle, **Y**ounger, **L**ate and **F**inal. 
 
@@ -130,7 +136,7 @@ ld$period <- factor(ld$period, levels = c("EN","MN", "YN", "LN","FN"))
 ld %>%
   group_by(., period) %>%
   summarise(count = sum(count)) %>%
-  knitr::kable(caption = "Number of individuals in each period.", 
+  knitr::kable(caption = "Number of age estimations in each period.", 
                col.names = c("Period", "Count"))
 ```
 
@@ -139,33 +145,34 @@ ld %>%
 ```{r Data per archaeological cultures per period}
 ld %>%
   group_by(., period, culture) %>%
-  summarise(count = sum(count)) %>%
-  knitr::kable(caption = "Number of individuals in each archaeological culture.",
+  summarise(count = sum(count), .groups = 'drop') %>%
+  knitr::kable(caption = "Number of age estimations in each archaeological culture.",
                col.names = c("Period", "Culture", "Count"))
 ```
 
-Number of individuals per simplified sex determination. The high proportion of undetermined sex results from the tabular data and the subadult individuals.
+Number of age estimations per simplified sex determination. The high proportion of undetermined sex results from the tabular data and the subadult individuals.
 
 ```{r Sex determination}
 ld %>%
   group_by(., sex) %>%
   summarise(count = sum(count)) %>%
-  knitr::kable(caption = "Number of individuals per sex.",
+  knitr::kable(caption = "Number of age estimations per sex.",
                col.names = c("Sex", "Count"))
 ```
 
-Sites, related citations and count of individuals.
+Sites, related citations and count of age estimations.
 ```{r Sites and related citations}
 ld %>%
-  group_by(., site, literature) %>%
-  summarise(count = sum(count)) %>%
-  knitr::kable(caption = "Number of individuals per site",
+  mutate(., short_citation = sub(",.*", "", literature)) %>%
+  group_by(., site, short_citation) %>%
+  summarise(count = sum(count), .groups = 'drop') %>%
+  knitr::kable(caption = "Number of age estimations per site",
                col.names = c("Site", "Literature", "Count"))
 ```
 
 The age ranges depend mainly on the traditional age groups and the usual 5-year-intervals in life tables. Two different illustrations can show the dependence between the determined age at death and the accuracy of the age range.
 
-```{r Age range visualization, fig.cap = "Age range per individual."}
+```{r Age range visualization, fig.cap="Age range per estimation.", warning=FALSE}
 ld %>%
   select(., from, to) %>%
   filter(., !is.na(from)) %>%
@@ -174,14 +181,16 @@ ld %>%
   mutate(., agegroup = ifelse(to < 20, 'subadult', 'adult')) %>%
   arrange(., from, to) -> ages
 id <- seq(nrow(ages))
-plot(c(0,100), c(0,nrow(ages)), xlab = "Age from to", ylab = "Individual", type = "n") +
+plot(c(0,100), c(0,nrow(ages)), xlab = "Age from to", 
+     ylab = "age estimations", type = "n") +
 segments(ages$from[id], id, ages$to[id], id)
 ```
 ```{r Age range boxplot, fig.cap = "Age range for subadult (< 20) and adult individuals."}
 boxplot(range~agegroup, data = ages, xlab = "Age group", ylab = "Age range")
 ```
 
-\newpage
+\clearpage
+
 ## Overview of age at death (dx).
 
 The following plots are created with the R-package mortAAR^[If you observe strange plot lines in the ggplots of mortAAR, please consider the installation of the latest version of mortAAR from github.] without an interpolation (method = standard) for various groupings. 
