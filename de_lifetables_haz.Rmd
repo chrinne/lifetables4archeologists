@@ -1,0 +1,234 @@
+---
+title: 'Iron Age : Hallstatt period life tables de'
+author:
+- "Christoph Rinne^[Kiel University, crinne@ufg.uni-kiel.de]"
+- "Nils Müller-Scheeßel^[Kiel University, nils.mueller-scheessel@ufg.uni-kiel.de]"
+date: "Version 1.0 (2025-02-06)"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    number_sections: true
+    toc: true
+    toc_float: true
+    df_print: paged
+    css: ../styles/tutorials.css
+    theme: readable
+version: Version 1.0
+subtitle: Providing and presenting data on human age at death.
+papersize: a4
+urlcolor: blue
+link-citations: true
+linkcolor: blue
+license: "CC-BY 4.0"
+description: The dataset contains mortality data of humans taken from the literature. The collection provides a general impression of the differences in mortality during the Iron Age Hallstatt Period in different communities within Southern Germany.
+---
+
+
+# Introduction
+
+The dataset contains mortality data of humans taken from the literature. Therefore, the data is heterogeneous in many respects, especially with regard to the quality of the anthropological information. However, the data is simplified and classified to fit into a limited number of columns, e.g. a general archaeological dating. 
+
+In the current version, the data is taken exclusively from the database of the following work and the providet tables from the original database:
+
+Müller-Scheeßel 2006: N. Müller-Scheeßel, Untersuchungen zum Wandel hallstattzeitlicher Bestattungssitten in Süd- und Südwestdeutschland (Datenbank) (Eberhard Karls Universität 2006). http://hdl.handle.net/10900/47101 (Zugriff: 19.10.2023).
+
+Due to the large number of tables, the data was first processed semi-automatically and transferred to an SQLITE database (https://github.com/chrinne/digging.digital.data). From this, the data was transferred to the schema presented here and supplemented with the literature in BibTeX format. 
+
+Important note: Most anthropologists will reject extrapolations, especially of life expectancy, based on this data. The attribute "(archaeological) culture" serves as a label for a number of features related to the way of life, e.g. houses, settlement structure, economy and burial practices. It is taken from the Neolithic tablets and thus to a certain extent an atavism in the context of the Hallstatt period. This is why the column here remains empty. The attribute "period" is based on typological dating and the related relativ chronology. It must be placed in an archaeological framework and a current absolute dating, depending on the research question. Please bear in mind that e.g. burial mounts can have a complex stratigraphy and burials  with multuiple inhumation do not necessarily represent a 'closed find'.  
+
+The data is provided as a sqlite database in a very simple form, not normalised or as implemented relations. This documentation is provided as an R-markdown with a resulting pdf to give a first overview of the data in the database. At the same time, a simple workflow for data processing in R with the R package [mortAAR] (https://cran.r-project.org/web/packages/mortAAR/index.html) for calculating life tables is described.  The literature used and cited is provided *a priori* as a Bibtex file but provides simple text as well.
+
+The data collection is available via the LandMan portal of CRC 1266^[ "Scales of Transformation - Human-Environmental Interaction in Prehistoric and Archaic Societies." Deutsche Forschungsgemeinschaft (DFG) - project number 290391021
+[https://gepris.dfg.de/gepris/projekt/290391021](https://gepris.dfg.de/gepris/projekt/290391021)]. Subproject: "Regional and Local Patterns of 3<sup>rd</sup> Millennium Transformations of Social and Economic Practices in the Central German Mountain Range (D2)". [https://gepris.dfg.de/gepris/projekt/316739879](https://gepris.dfg.de/gepris/projekt/316739879)]
+
+# Data presentation
+
+All code chunks will be visible, this is part of the reproducibility. The documentation uses some R packages:
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, include = TRUE)
+require(pacman) || install.packages("pacman")
+pacman::p_load(dplyr, ggplot2, knitr, mortAAR, RSQLite)
+```
+
+Please set the working directory to the folder with the data, e.g.:
+
+```{r working directory, eval=FALSE}
+setwd('d:/data/folder/')
+```
+
+Set up the database connection.
+
+```{r database connection}
+db01 <- dbConnect(RSQLite::SQLite(), dbname = "./de_lifetable_haz.sqlite")
+```
+
+## Data structure
+
+The data is provided in three tables – two tables for individual and tabled mortality data and one with cooridinates for the nearby places. 
+
+```{sql Tables in the sqlite database, connection = db01}
+select name  as 'table name' from sqlite_master where type = 'table' order by 1; 
+```
+</br>
+Import the data into the R environment.
+
+```{r data import}
+tables<- dbGetQuery(db01, "select name from sqlite_master 
+                    where type = 'table' order by 1;")[,1]
+for (tbl in tables){
+  assign(tbl, dbReadTable(db01, tbl))
+}
+```
+
+Most sqlite columns are set to TXT due to type affinity in sqlite, one exception is 'count'. You might need to adjust this (sb).
+
+### citations
+
+This table contains all 761 literature citations of the dissertation and data collection of Nils Müller-Scheeßel in BibTeX format. To facilitate the search for the respective literature reference, we added a view supplemented by the columns author and year. The sql-statement is given below but limited to the first data record, whereby the line breaks in the BibTeX cause the incorrect display in this text. 
+
+```{sql View for adding colums autor and jahr to the bibtex, connection=db01}
+-- CREATE VIEW auto_jahr_bibtex as
+select
+  substr(bibtex,instr(bibtex, 'author = {')+10,
+    instr (substr(bibtex,instr(bibtex, 'author = {')+10,100),'},')-1) as autor,
+  substr(bibtex,instr(bibtex, 'year = {')+8,
+    instr (substr(bibtex,instr(bibtex, 'year = {')+8,100),'},')-1) as jahr,
+  bibtex
+from citations
+limit 1;
+```
+
+### lifetable_ind and lifetable_tbl 
+
+The structure of the mortality data tables for individual and tabled data is identical for the easy combination (*rbind()*). The column names are self-explanatory in general. 
+
+```{r Column names (attributes) in the lifedata tables , results = 'asis'}
+paste(colnames(get(tables[2])), collapse = ", ")
+```
+
+The column 'count' is always 1 for individual data and can provide a float for tabled data due to interpolation in the original life tables. The column 'sex2' provides a simplified English version of the original sex determination in the column 'sex'. The columns 'from' and 'to' are derived from the original age classification in 'ageclass.orig' to fulfil the needs of mortAAR.
+
+### places
+
+The table 'places' provides coordinates (WGS84) of nearby places to allow spatial differentiation. The 'id' is related to 'places' in the lifetables.
+
+```{r Column names (attributes) in the places table, results = 'asis'}
+paste(colnames(get(tables[5])), collapse = ", ")
+```
+
+## Content of places
+
+The nearby places are distributed within Baden-Württemberg and Bavaria. This area can be app. outlined by the cities of Frankfurt Main, Bamberg, Passau, Hallstatt and Freiburg im Breisgau. In total there are places with related inhumations and anthropological data.
+
+```{r plot places, fig.cap = "Plot of nearby places."}
+cities <- rbind.data.frame(
+	c("Freiburg i. Br.", 48.004, 7.825),
+	c("Passau", 48.567, 13.432),
+	c("Hallstatt", 47.562, 13.650),
+	c("Frankfurt a.M.", 50.111, 8.682),
+	c("Bamberg", 49.900, 10.903)
+)
+colnames(cities) <-c("name", "lat", "lon")
+cities$lat<-as.numeric(cities$lat)
+cities$lon<-as.numeric(cities$lon)
+plot(places$longitude, places$latitude, pch = 19, cex = 0.3, 
+     xlab = "Longitude", ylab = "Latitude",
+     xlim = c(7.5,14), ylim = c(47.6,50.4)); 
+     text(cities$lon, cities$lat, cities$name, cex = 0.6)
+```
+```{r}
+length(places$id)
+``` 
+
+## Content of life tables
+
+The general overview is comprised of two tables for individual and tabled data. 
+
+```{r Combine lifedata tables}
+ld <- rbind(lifedata_ind, lifedata_tbl)
+ld$from <- as.numeric(ld$from)
+ld$to <- as.numeric(ld$to) 
+```
+
+**Periods** are abbreviated: **Ha**llstatt and the additional phases and can be combined due to imprecise dating or to express the transition. 
+
+```{r Periods to factor and table}
+ld$period <- factor(ld$period, 
+                    levels = c("Hallstattzeit", "HaC", "HaC/D1", "HaC1",
+                               "HaC2", "HaC2/D1", "HaC2/D", "HaD", "HaD1", 
+                               "HaD1/D2", "HaD2", "HaD2/D3", "HaD3", 
+                               "Latènezeit", "Unklar", "indet"))
+ld %>%
+  group_by(., period) %>%
+  summarise(count = sum(count)) %>%
+  knitr::kable(caption = "Number of individuals in each period.", 
+               col.names = c("Period", "Count"))
+```
+
+</br>
+Number of individuals per simplified sex determination. The high proportion of undetermined sex results from the tabular data and the subadult individuals.
+
+```{r Sex determination}
+ld %>%
+  group_by(., sex2) %>%
+  summarise(count = sum(count)) %>%
+  knitr::kable(caption = "Number of individuals per sex.",
+               col.names = c("Sex", "Count"))
+```
+
+</br>
+The comment provides information on the burial practice (inhumation, cremation).
+
+```{r burial practices}
+ld %>%
+  group_by(., comment) %>%
+  summarise(count = sum(count)) %>%
+  knitr::kable(caption = "Number of individuals per comment (burial practice).",
+               col.names = c("burial practice", "Count"))
+```
+
+</br>
+The age ranges depend mainly on the traditional age groups and the usual 5-year-intervals in life tables. Two different illustrations can show the dependence between the determined age at death and the accuracy of the age range.
+
+```{r Age range visualization, fig.cap="Age range per individual."}
+ld %>%
+  select(., from, to) %>%
+  filter(., !is.na(from)) %>%
+  filter(., !is.na(to)) %>%
+  mutate(., range = to - from) %>%
+  mutate(., agegroup = ifelse(to < 20, 'subadult', 'adult')) %>%
+  arrange(., from, to) -> ages
+id <- seq(nrow(ages))
+plot(c(0,100), c(0,nrow(ages)), 
+     xlab = "Age from to", ylab = "Individual", type = "n") +
+ segments(ages$from[id], id, ages$to[id], id)
+```
+
+```{r Age range boxplot, fig.cap = "Age range for subadult (< 20) and adult individuals."}
+boxplot(range~agegroup, data = ages, xlab = "Age group", ylab = "Age range")
+```
+
+## Overview of age at death (dx).
+
+The following plots are created with the R-package mortAAR^[If you observe strange plot lines in the ggplots of mortAAR, please consider the installation of the latest version of mortAAR from github.] without an interpolation (method = standard) for various groupings. 
+
+### Periods
+
+```{r d(x) periods}
+prep.life.table(ld, dec = "count", agebeg = "from", ageend = "to",
+  group = "period", method = "standard", agerange = "included") %>%
+  life.table(.) %>%
+  plot(., display = c("dx"), line_vis="color")
+```
+
+### Sex
+
+```{r d(x) sex}
+prep.life.table(ld, dec = "count", agebeg = "from", ageend = "to",
+  group = "sex2", method = "standard", agerange = "included") %>%
+  life.table(.) %>%
+  plot(., display = c("dx"), line_vis="color")
+```
+
